@@ -1,0 +1,98 @@
+#!/usr/bin/python
+
+import argparse
+import multiprocessing
+import qcow2
+import raw
+import vmdkstream
+
+
+def parse_args():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("infile")
+    ap.add_argument("outfile")
+    ap.add_argument("-f", choices=("raw", "qcow2", "vmdk"), required=True)
+    return ap.parse_args()
+
+
+def qcow2_reader(r):
+    for cluster in xrange(r.size >> r.cluster_bits):
+        yield (cluster, r.read_cluster(cluster))
+
+
+def qcow2_compressor((cluster, data)):
+    try:
+        return (cluster, qcow2.compress(data))
+
+    except KeyboardInterrupt:
+        pass
+
+
+def vmdk_compressor((cluster, data)):
+    try:
+        return (cluster, vmdkstream.compress(data))
+
+    except KeyboardInterrupt:
+        pass
+
+
+def qcow2_to_raw(src, dst):
+    r = qcow2.QCow2Reader()
+    r.open(src)
+
+    w = raw.RawWriter()
+    w.create(dst, r.size)
+
+    for sec in xrange(r.size >> 9):
+        w.write_sector(sec, r.read_sector(sec))
+
+
+def qcow2_to_qcow2(src, dst, compressed=False):
+    r = qcow2.QCow2Reader()
+    r.open(src)
+
+    w = qcow2.QCow2Writer()
+    w.create(dst, r.size, compressed)
+
+    pool = multiprocessing.Pool()
+
+    if compressed:
+        for (cluster, data) in pool.imap(qcow2_compressor, qcow2_reader(r)):
+            w.write_cluster_precompressed(cluster, data)
+    else:
+        for (cluster, data) in qcow2_reader(r):
+            w.write_cluster(cluster, data)
+
+    w.close()
+
+
+def qcow2_to_vmdkstream(src, dst):
+    r = qcow2.QCow2Reader()
+    r.open(src)
+
+    w = vmdkstream.VMDKStreamWriter()
+    w.create(dst, r.size)
+
+    pool = multiprocessing.Pool()
+
+    for (cluster, data) in pool.imap(vmdk_compressor, qcow2_reader(r)):
+        w.write_grain_precompressed(cluster, data)
+
+    w.close()
+
+
+def main():
+    args = parse_args()
+
+    if args.f == "raw":
+        qcow2_to_raw(args.infile, args.outfile)
+
+    elif args.f == "qcow2":
+        qcow2_to_qcow2(args.infile, args.outfile, True)
+
+    elif args.f == "vmdk":
+        qcow2_to_vmdkstream(args.infile, args.outfile)
+
+
+if __name__ == "__main__":
+    main()
