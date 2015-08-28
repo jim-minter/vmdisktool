@@ -7,12 +7,16 @@ import zlib
 
 class QCow2Base(base.FileBase):
     MAGIC = 0x514649fb
-    VERSION = 2
+    VERSION = 3
     CRYPT_METHOD = 0
     NB_SNAPSHOTS = 0
     SNAPSHOTS_OFFSET = 0
+    INCOMPATIBLE_FEATURES = 0
+    COMPATIBLE_FEATURES = 0
+    AUTOCLEAR_FEATURES = 0
+    REFCOUNT_ORDER = 4
 
-    HEADER_FMT = ">LLQLLQLLQQLLQ"
+    HEADER_FMT = ">LLQLLQLLQQLLQQQQLL"
     HEADER_LENGTH = struct.calcsize(HEADER_FMT)
 
     COMPRESSED = 1 << 62
@@ -54,12 +58,18 @@ class QCow2Reader(QCow2Base):
         (magic, version, self.backing_file_offset, self.backing_file_size,
          self.cluster_bits, self.size, crypt_method, self.l1_size,
          self.l1_table_offset, self.refcount_table_offset,
-         self.refcount_table_clusters, nb_snapshots, snapshots_offset) \
+         self.refcount_table_clusters, nb_snapshots, snapshots_offset,
+         incompatible_features, compatible_features,
+         autoclear_features, refcount_order, header_length) \
             = struct.unpack(self.HEADER_FMT, self.f.read(self.HEADER_LENGTH))
 
-        if (magic, version, crypt_method, nb_snapshots, snapshots_offset) != \
+        if (magic, version, crypt_method, nb_snapshots, snapshots_offset,
+            incompatible_features, compatible_features, autoclear_features,
+            refcount_order, header_length) != \
             (self.MAGIC, self.VERSION, self.CRYPT_METHOD, self.NB_SNAPSHOTS,
-             self.SNAPSHOTS_OFFSET):
+             self.SNAPSHOTS_OFFSET, self.INCOMPATIBLE_FEATURES,
+             self.COMPATIBLE_FEATURES, self.AUTOCLEAR_FEATURES,
+             self.REFCOUNT_ORDER, self.HEADER_LENGTH):
             raise Exception()
 
         self.backing_file = self.pread(self.backing_file_offset,
@@ -145,7 +155,12 @@ class QCow2Writer(QCow2Base):
                                    self.l1_table_offset,
                                    self.refcount_table_offset,
                                    self.refcount_table_clusters,
-                                   self.NB_SNAPSHOTS, self.SNAPSHOTS_OFFSET))
+                                   self.NB_SNAPSHOTS, self.SNAPSHOTS_OFFSET,
+                                   self.INCOMPATIBLE_FEATURES,
+                                   self.COMPATIBLE_FEATURES,
+                                   self.AUTOCLEAR_FEATURES,
+                                   self.REFCOUNT_ORDER,
+                                   self.HEADER_LENGTH))
 
     def write_rc(self):
         rc_table = []
